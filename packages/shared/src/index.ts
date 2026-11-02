@@ -87,6 +87,7 @@ export interface Historico {
 export type UserRole = 'admin' | 'operador';
 
 export interface Usuario {
+  username?: string | null;
   id: number;
   nome: string;
   email: string;
@@ -102,6 +103,7 @@ export interface AuthUser {
   id: number;
   nome: string;
   email: string;
+  username?: string | null;
   role: UserRole;
   pode_cadastrar_usuarios: boolean;
   ativo: boolean;

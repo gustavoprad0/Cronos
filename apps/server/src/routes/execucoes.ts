@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { realtimeSecret } from '../realtime-config';
 
 const router = Router();
 const REALTIME_URL = process.env.REALTIME_HTTP_URL || 'http://localhost:3002';
@@ -15,7 +16,7 @@ router.post('/disparar', async (req: Request, res: Response) => {
     // Chama o serviço realtime para despachar o comando para o client socket
     const rtRes = await fetch(`${REALTIME_URL}/dispatch`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Cronos-Internal-Secret': realtimeSecret },
       body: JSON.stringify({
         automacao_id: Number(automacao_id),
         maquina_id: maquina_id ? Number(maquina_id) : undefined,
@@ -48,7 +49,7 @@ router.post('/interromper', async (req: Request, res: Response) => {
 
     const rtRes = await fetch(`${REALTIME_URL}/stop`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Cronos-Internal-Secret': realtimeSecret },
       body: JSON.stringify({ historico_id: Number(historico_id) }),
     });
 

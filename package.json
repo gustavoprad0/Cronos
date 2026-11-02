@@ -1,6 +1,6 @@
 {
   "name": "cronos",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Cronos - Orquestrador em Node + React com TypeScript",
   "workspaces": [
@@ -20,6 +20,9 @@
     "build:web": "npm --workspace=@cronos/web run build",
     "start": "npm --workspace=@cronos/server run start",
     "start:realtime": "npm --workspace=@cronos/realtime run start",
+    "test:flow": "node scripts/test-flow.mjs",
+    "test:auth": "node scripts/test-auth.mjs",
+    "test:schedule": "npm run build:realtime && node scripts/test-schedule.mjs",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v && docker compose up -d",

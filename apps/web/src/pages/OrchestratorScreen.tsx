@@ -1,3 +1,4 @@
+import { usePreference } from '../hooks/usePreference';
 import { useEffect, useMemo, useState } from 'react';
 import type { Automacao, Maquina } from '@cronos/shared';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -21,8 +22,8 @@ interface MaquinaComStatus extends Maquina {
 export function OrchestratorScreen() {
   const [automacoes, setAutomacoes] = useState<Automacao[]>([]);
   const [maquinas, setMaquinas] = useState<MaquinaComStatus[]>([]);
-  const [query, setQuery] = useState('');
-  const [departamentoFilter, setDepartamentoFilter] = useState('all');
+  const [query, setQuery] = usePreference('automations.search', '');
+  const [departamentoFilter, setDepartamentoFilter] = usePreference('automations.department', 'all');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -305,7 +306,7 @@ export function OrchestratorScreen() {
           </div>
         ) : (
           <section className="automation-table" aria-label="Lista de automações">
-            <div className="automation-table-scroll">
+            <div className="automation-table-scroll" tabIndex={0} role="region" aria-label="Tabela com rolagem horizontal">
               <div
                 className="automation-head"
                 style={{ gridTemplateColumns: '60px 1.5fr 1fr 2fr 100px 190px' }}

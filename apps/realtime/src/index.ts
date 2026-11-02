@@ -1,9 +1,11 @@
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server, Socket } from 'socket.io';
 import { query } from './db.js';
+import { matchesSchedule } from './schedule.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +13,11 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const PORT = Number(process.env.REALTIME_PORT || 3002);
+const configuredSecret = process.env.REALTIME_INTERNAL_SECRET;
+if (!configuredSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('REALTIME_INTERNAL_SECRET é obrigatório em produção');
+}
+const internalSecret = configuredSecret || 'cronos-local-realtime';
 
 interface ConnectedClientInfo {
   socket: Socket;
@@ -43,6 +50,16 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'online', clients: connectedClients.size }));
     return;
+  }
+
+  if (['/clients', '/dispatch', '/stop'].includes(url.pathname)) {
+    const provided = Buffer.from(String(req.headers['x-cronos-internal-secret'] || ''));
+    const expected = Buffer.from(internalSecret);
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Acesso interno não autorizado.' }));
+      return;
+    }
   }
 
   // GET /clients - Lista clientes conectados
@@ -83,6 +100,11 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const automacao = autoRes.rows[0];
+        if (!automacao.ativo) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'A automação está inativa.' }));
+          return;
+        }
 
         // Localiza a máquina conectada
         let targetClient: ConnectedClientInfo | undefined;
@@ -116,6 +138,14 @@ const server = http.createServer(async (req, res) => {
               historico: histRes.rows[0],
             })
           );
+          return;
+        }
+
+        const machineRes = await query('SELECT ativo FROM maquinas WHERE id = $1', [targetClient.machine_id]);
+        if (!machineRes.rows[0]?.ativo) {
+          targetClient.socket.disconnect(true);
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'A máquina está inativa ou foi removida.' }));
           return;
         }
 
@@ -168,7 +198,17 @@ const server = http.createServer(async (req, res) => {
 
         // Busca dados do histórico para enviar stop específico para a máquina correta
         const histRes = await query('SELECT * FROM historico WHERE id = $1', [historico_id]);
-        if (histRes.rows.length > 0) {
+        if (histRes.rows.length === 0) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Execução não encontrada.' }));
+          return;
+        }
+        if (histRes.rows[0].status !== 'em_execucao') {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'A execução não está em andamento.' }));
+          return;
+        }
+        {
           const targetMaquinaId = histRes.rows[0].maquina_id;
           const target = Array.from(connectedClients.values()).find(
             (c) => c.machine_id === targetMaquinaId
@@ -176,11 +216,7 @@ const server = http.createServer(async (req, res) => {
           if (target) {
             target.socket.emit('stop_process', { automation_id: String(historico_id) });
             console.log(`[Stop] Ordem stop_process emitida para a máquina "${target.machine_name}" (Histórico #${historico_id})`);
-          } else {
-            io.emit('stop_process', { automation_id: String(historico_id) });
           }
-        } else {
-          io.emit('stop_process', { automation_id: String(historico_id) });
         }
 
         // Atualiza status no banco para 'parado'
@@ -294,6 +330,11 @@ io.on('connection', (socket) => {
   // Evento emitido pelo cliente ao concluir execução
   socket.on('process_finished', async (data) => {
     try {
+      const client = connectedClients.get(socket.id);
+      if (!client) {
+        console.warn('[Socket.IO] Finalização ignorada: cliente não autenticado.');
+        return;
+      }
       console.log(`[Socket.IO] Sinal de process_finished recebido:`, data);
       const { automation_id, status, return_code, message } = data || {};
 
@@ -325,10 +366,15 @@ io.on('connection', (socket) => {
          SET status = $1,
              erro = $2,
              data_fim = NOW()
-         WHERE id = $3
+         WHERE id = $3 AND maquina_id = $4 AND status = 'em_execucao'
          RETURNING *`,
-        [finalStatus, finalErrorMsg, historicoId]
+        [finalStatus, finalErrorMsg, historicoId, client.machine_id]
       );
+
+      if (updateRes.rows.length === 0) {
+        console.warn(`[Historico] Finalização ignorada para execução #${historicoId}.`);
+        return;
+      }
 
       console.log(
         `[Historico] Execução #${historicoId} atualizada para "${finalStatus}". Registro atualizado.`
@@ -364,12 +410,7 @@ async function checkGatilhos() {
     const currentMin = String(now.getMinutes()).padStart(2, '0');
     const currentTimeStr = `${currentHour}:${currentMin}`; // "HH:mm"
 
-    // Dia da semana: 1 = segunda, ..., 7 = domingo
-    const currentDayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
-    const currentDayOfMonth = now.getDate();
-    const isWeekend = currentDayOfWeek === 6 || currentDayOfWeek === 7;
-
-    const minuteKey = `${now.toISOString().slice(0, 10)} ${currentTimeStr}`;
+    const minuteKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${currentTimeStr}`;
 
     const gatilhosRes = await query('SELECT * FROM gatilhos WHERE ativo = TRUE');
 
@@ -385,31 +426,7 @@ async function checkGatilhos() {
         continue;
       }
 
-      let shouldFire = false;
-
-      if (g.tipo === 'diario') {
-        if (!isWeekend) {
-          shouldFire = true;
-        } else {
-          // É sábado ou domingo
-          if (g.regra_dia_util === 'manter') {
-            shouldFire = true;
-          }
-          // postergar ou adiantar: não dispara no fim de semana
-        }
-      } else if (g.tipo === 'semanal') {
-        if (g.dia_execucao === currentDayOfWeek) {
-          if (!isWeekend || g.regra_dia_util === 'manter') {
-            shouldFire = true;
-          }
-        }
-      } else if (g.tipo === 'mensal') {
-        if (g.dia_execucao === currentDayOfMonth) {
-          if (!isWeekend || g.regra_dia_util === 'manter') {
-            shouldFire = true;
-          }
-        }
-      }
+      const shouldFire = matchesSchedule(now, g);
 
       if (shouldFire) {
         console.log(`[Scheduler] Gatilho #${g.id} disparando para automação #${g.automacao_id}...`);
@@ -426,6 +443,12 @@ async function checkGatilhos() {
           const targetClient = Array.from(connectedClients.values()).find(
             (c) => c.machine_id === g.maquina_id
           );
+
+          const machineRes = await query('SELECT ativo FROM maquinas WHERE id = $1', [g.maquina_id]);
+          if (!machineRes.rows[0]?.ativo) {
+            targetClient?.socket.disconnect(true);
+            continue;
+          }
 
           if (!targetClient) {
             await query(

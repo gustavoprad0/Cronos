@@ -62,6 +62,8 @@ router.get('/', async (req: Request, res: Response) => {
       )`;
     }
 
+    const filterSql = sql.slice(sql.indexOf('WHERE 1=1'));
+    const filterParams = [...params];
     sql += ` ORDER BY h.data_inicio DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(Number(limit), Number(offset));
 
@@ -73,8 +75,9 @@ router.get('/', async (req: Request, res: Response) => {
       FROM historico h
       JOIN automacoes a ON a.id = h.automacao_id
       LEFT JOIN maquinas m ON m.id = h.maquina_id
+      ${filterSql}
     `;
-    const countResult = await query(countSql);
+    const countResult = await query(countSql, filterParams);
 
     const response: ApiResponse<{ items: HistoricoItemCompleto[]; total: number }> = {
       success: true,

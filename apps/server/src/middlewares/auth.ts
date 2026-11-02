@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { UserRole } from '@cronos/shared';
+import { query } from '../db';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'cronos_jwt_secret_dev_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET é obrigatório em produção'); })() : 'cronos_jwt_secret_dev_key_2026');
 
 export interface TokenPayload {
   id: number;
@@ -16,7 +17,7 @@ export interface AuthenticatedRequest extends Request {
   user?: TokenPayload;
 }
 
-export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -38,9 +39,27 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
-    req.user = decoded;
+    const result = await query(
+      'SELECT id, email, nome, role, pode_cadastrar_usuarios, ativo FROM usuarios WHERE id = $1',
+      [decoded.id]
+    );
+    const user = result.rows[0];
+    if (!user || !user.ativo) {
+      return res.status(401).json({ success: false, error: 'Conta indisponível. Faça login novamente.' });
+    }
+    req.user = {
+      id: user.id,
+      email: user.email,
+      nome: user.nome,
+      role: user.role,
+      pode_cadastrar_usuarios: user.role === 'admin' || Boolean(user.pode_cadastrar_usuarios),
+    };
     return next();
   } catch (err: any) {
+    if (!(err instanceof jwt.JsonWebTokenError)) {
+      console.error('[Auth] Erro ao verificar sessão:', err);
+      return res.status(503).json({ success: false, error: 'Não foi possível verificar sua sessão. Tente novamente.' });
+    }
     return res.status(401).json({
       success: false,
       error: 'Sessão expirada ou token inválido. Faça login novamente.',

@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
 );
 
 -- Migrações seguras caso a tabela já exista
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS username VARCHAR(50);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_username_unique ON usuarios (lower(username)) WHERE username IS NOT NULL;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'operador';
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pode_cadastrar_usuarios BOOLEAN NOT NULL DEFAULT FALSE;
 
@@ -188,15 +190,13 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_role ON usuarios(role);
 
 -- Usuário Administrador Padrão (Senha padrão: admin123)
 INSERT INTO usuarios (nome, email, senha_hash, role, pode_cadastrar_usuarios, ativo)
-VALUES (
+SELECT
     'Administrador Cronos',
     'admin@cronos.com',
     crypt('admin123', gen_salt('bf', 10)),
     'admin',
     TRUE,
     TRUE
-)
-ON CONFLICT (email) DO UPDATE SET
-    role = 'admin',
-    pode_cadastrar_usuarios = TRUE;
+WHERE NOT EXISTS (SELECT 1 FROM usuarios)
+ON CONFLICT (email) DO NOTHING;
 

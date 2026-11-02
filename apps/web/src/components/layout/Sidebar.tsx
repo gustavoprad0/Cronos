@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { usePreference } from '../../hooks/usePreference';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import './Sidebar.css';
@@ -21,23 +22,6 @@ function IconAutomation() {
     return (
         <svg className="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-        </svg>
-    );
-}
-
-function IconTasks() {
-    return (
-        <svg className="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-        </svg>
-    );
-}
-
-function IconMonitor() {
-    return (
-        <svg className="sidebar-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
     );
 }
@@ -77,17 +61,6 @@ function IconMenu() {
     );
 }
 
-function IconLogout() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-        </svg>
-    );
-}
-
-
 /* ─── Nav items config with submenus ─── */
 
 interface SubmenuItem {
@@ -116,29 +89,10 @@ const navItems: NavItem[] = [
         ],
     },
     {
-        id: 'tasks',
-        label: 'Tarefas',
-        Icon: IconTasks,
-        children: [
-            { id: 'task-queue', label: 'Fila de tarefas' },
-            { id: 'task-schedules', label: 'Agendamentos programados' },
-        ],
-    },
-    {
-        id: 'monitoring',
-        label: 'Monitoramento',
-        Icon: IconMonitor,
-        children: [
-            { id: 'monitor-live', label: 'Visão em tempo real' },
-            { id: 'monitor-alerts', label: 'Alertas do sistema' },
-        ],
-    },
-    {
         id: 'settings',
         label: 'Configurações',
         Icon: IconSettings,
         children: [
-            { id: 'settings-general', label: 'Preferências gerais' },
             { id: 'settings-access', label: 'Usuários e Permissões' },
         ],
     },
@@ -159,9 +113,25 @@ export default function Sidebar({
     collapsed = false,
     onToggleCollapse,
 }: SidebarProps) {
-    const { user, canManageUsers, logout } = useAuth();
+    const { canManageUsers } = useAuth();
     const [mobileOpen, setMobileOpen] = useState(false);
-    const [expandedMenus, setExpandedMenus] = useState<string[]>(['automations']);
+    const [expandedMenus, setExpandedMenus] = usePreference<string[]>('menu.expandedGroups', [], (value): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string' && navItems.some(group => group.id === item)));
+
+    useEffect(() => {
+        const group = navItems.find(item => item.children?.some(child => child.id === activeItem));
+        if (group) {
+            setExpandedMenus(current => current.includes(group.id) ? current : [...current, group.id]);
+        }
+    }, [activeItem]);
+
+    useEffect(() => {
+        if (!mobileOpen) return;
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setMobileOpen(false);
+        };
+        window.addEventListener('keydown', closeOnEscape);
+        return () => window.removeEventListener('keydown', closeOnEscape);
+    }, [mobileOpen]);
 
     const filteredNavItems = navItems.map((item) => {
         if (!item.children) return item;
@@ -176,9 +146,9 @@ export default function Sidebar({
 
     const handleNav = (id: string) => {
         onNavigate?.(id);
-        setMobileOpen(false);
 
         if (id === 'dashboard') {
+            setMobileOpen(false);
             window.history.pushState({}, '', '/dashboard');
             window.dispatchEvent(new PopStateEvent('popstate'));
         }
@@ -186,6 +156,7 @@ export default function Sidebar({
 
     const handleSubmenuNav = (id: string) => {
         handleNav(id);
+        setMobileOpen(false);
 
         if (id === 'automation-cadastro' || id === 'automation-tests') {
             window.history.pushState({}, '', '/automacoes');
@@ -220,13 +191,18 @@ export default function Sidebar({
             {/* Mobile toggle */}
             <button
                 className="sidebar-mobile-toggle"
-                onClick={() => setMobileOpen(!mobileOpen)}
-                aria-label="Abrir menu"
+                onClick={() => {
+                    if (!mobileOpen && collapsed) onToggleCollapse?.();
+                    setMobileOpen(!mobileOpen);
+                }}
+                aria-label={mobileOpen ? "Fechar menu" : "Abrir menu"}
+                aria-expanded={mobileOpen}
+                aria-controls="main-navigation"
             >
                 <IconMenu />
             </button>
 
-            <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
+            <aside id="main-navigation" className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
                 {/* Logo — centralizado */}
                 <div className="sidebar-logo">
                     <div className="sidebar-logo-img-wrap">
@@ -293,29 +269,6 @@ export default function Sidebar({
                     })}
                 </nav>
 
-                {/* Usuário autenticado e Logout */}
-                <div className="sidebar-user-card">
-                    <div className="sidebar-user-avatar" title={user?.email || 'Usuário'}>
-                        {user?.nome ? user.nome.charAt(0).toUpperCase() : 'U'}
-                    </div>
-                    {!collapsed && (
-                        <div className="sidebar-user-info">
-                            <span className="sidebar-user-name" title={user?.nome}>{user?.nome || 'Usuário'}</span>
-                            <span className="sidebar-user-email" title={user?.email}>
-                                {user?.role === 'admin' ? 'Administrador' : 'Operador'} • {user?.email || ''}
-                            </span>
-                        </div>
-                    )}
-                    <button
-                        className="sidebar-logout-btn"
-                        onClick={() => logout()}
-                        title="Sair do sistema"
-                        aria-label="Sair do sistema"
-                    >
-                        <IconLogout />
-                    </button>
-                </div>
-
                 {/* Botão de recolher/expandir integrado dentro do menu */}
 
                 <div className="sidebar-collapse-wrapper">
@@ -334,7 +287,7 @@ export default function Sidebar({
 
                 {/* Footer — centralizado com versão em destaque branco */}
                 <div className="sidebar-footer">
-                    <span className="sidebar-version">Cronos v0.1.0</span>
+                    <span className="sidebar-version">Cronos v1.0.0</span>
                 </div>
             </aside>
 

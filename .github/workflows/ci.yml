@@ -1,0 +1,68 @@
+name: Validar Cronos
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cronos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cronos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cronos_test
+      JWT_SECRET: cronos-ci-only-jwt-secret
+      REALTIME_INTERNAL_SECRET: cronos-ci-only-internal-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:schedule
+      - run: npm run db:update
+      - name: Validar autenticação e execução
+        shell: bash
+        run: |
+          npm start > /tmp/cronos-api.log 2>&1 &
+          api_pid=$!
+          npm run start:realtime > /tmp/cronos-realtime.log 2>&1 &
+          realtime_pid=$!
+          trap 'kill "$api_pid" "$realtime_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:3001/health > /dev/null && curl --fail --silent http://localhost:3002/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3001/health > /dev/null
+          curl --fail --silent http://localhost:3002/health > /dev/null
+          npm run test:auth
+          npm run test:flow
+      - name: Logs em caso de falha
+        if: failure()
+        run: |
+          cat /tmp/cronos-api.log 2>/dev/null || true
+          cat /tmp/cronos-realtime.log 2>/dev/null || true

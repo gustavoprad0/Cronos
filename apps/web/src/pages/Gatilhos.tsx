@@ -14,6 +14,7 @@ import {
   faChevronDown,
 } from '@fortawesome/free-solid-svg-icons';
 import { apiRequest } from '../services/api';
+import { usePreference } from '../hooks/usePreference';
 import { confirmAction, showError, showWarning } from '../utils/dialogs';
 import './orchestrator.css';
 
@@ -41,6 +42,8 @@ const DIAS_SEMANA = [
   { value: 7, label: 'Domingo' },
 ];
 
+const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
 export default function Gatilhos() {
   const [gatilhos, setGatilhos] = useState<GatilhoItem[]>([]);
   const [automacoes, setAutomacoes] = useState<Automacao[]>([]);
@@ -48,6 +51,18 @@ export default function Gatilhos() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [query, setQuery] = usePreference('triggers.search', '');
+  const [departmentFilter, setDepartmentFilter] = usePreference('triggers.department', 'all');
+  const departments = useMemo(() => [...new Set(gatilhos.map(item => item.automacao_departamento))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [gatilhos]);
+  const filteredTriggers = useMemo(() => {
+    const words = normalizeSearch(query.trim()).split(/\s+/).filter(Boolean);
+    return gatilhos.filter(item => {
+      if (departmentFilter !== 'all' && item.automacao_departamento !== departmentFilter) return false;
+      const periodicity = { diario: 'diário', semanal: 'semanal', mensal: 'mensal' }[item.tipo];
+      const text = normalizeSearch([String(item.id), item.automacao_nome, item.automacao_departamento, item.maquina_nome, periodicity, item.horario_execucao].join(' '));
+      return words.every(word => text.includes(word));
+    });
+  }, [gatilhos, query, departmentFilter]);
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -260,6 +275,22 @@ export default function Gatilhos() {
       </section>
 
       <section className="workspace-panel">
+        <div className="toolbar">
+          <label className="search-field">
+            <span>Buscar gatilho</span>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <FontAwesomeIcon icon={faSearch} aria-hidden="true" style={{ position: 'absolute', left: '14px', color: 'var(--color-muted)', fontSize: '13px' }} />
+              <input type="search" style={{ paddingLeft: '36px' }} placeholder="ID, automação, máquina, periodicidade ou horário..." value={query} onChange={event => setQuery(event.target.value)} />
+            </div>
+          </label>
+          <label className="select-field">
+            <span>Departamento</span>
+            <select value={departmentFilter} onChange={event => setDepartmentFilter(event.target.value)}>
+              <option value="all">Todos os departamentos</option>
+              {departments.map(department => <option key={department} value={department}>{department}</option>)}
+            </select>
+          </label>
+        </div>
         {successMsg && (
           <div className="success-alert" role="status">
             {successMsg}
@@ -291,7 +322,7 @@ export default function Gatilhos() {
           </div>
         ) : (
           <section className="automation-table" aria-label="Lista de gatilhos">
-            <div className="automation-table-scroll">
+            <div className="automation-table-scroll" tabIndex={0} role="region" aria-label="Tabela com rolagem horizontal">
               <div
                 className="automation-head"
                 style={{ gridTemplateColumns: '60px 1.5fr 1.2fr 1.3fr 100px 120px 90px 140px' }}
@@ -306,7 +337,7 @@ export default function Gatilhos() {
                 <span style={{ textAlign: 'right' }}>Ações</span>
               </div>
 
-              {gatilhos.map((gat) => (
+              {filteredTriggers.map((gat) => (
                 <div
                   key={gat.id}
                   className="automation-entry"
@@ -380,10 +411,11 @@ export default function Gatilhos() {
                 </div>
               ))}
 
-              {gatilhos.length === 0 && (
+              {filteredTriggers.length === 0 && (
                 <div className="empty-state">
-                  <strong>Nenhum gatilho agendado cadastrado.</strong>
-                  <span>Clique em "Novo Gatilho" para configurar a primeira automação recorrente.</span>
+                  <strong>{gatilhos.length === 0 ? 'Nenhum gatilho agendado cadastrado.' : 'Nenhum gatilho encontrado.'}</strong>
+                  <span>{gatilhos.length === 0 ? 'Clique em "Novo Gatilho" para configurar a primeira automação recorrente.' : 'Tente outro termo ou ajuste o departamento selecionado.'}</span>
+                  {(query || departmentFilter !== 'all') && <button type="button" className="ghost-button" onClick={() => { setQuery(''); setDepartmentFilter('all'); }}>Limpar filtros</button>}
                 </div>
               )}
             </div>
@@ -394,7 +426,7 @@ export default function Gatilhos() {
       {/* Modal Cadastro / Edição */}
       {modalOpen && (
         <div className="modal-backdrop" role="presentation">
-          <section className="confirmation-modal" style={{ width: 'min(100%, 540px)', overflow: 'visible' }} role="dialog">
+          <section className="confirmation-modal" style={{ width: 'min(100%, 540px)' }} role="dialog">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h2>{editingItem ? 'Editar Gatilho' : 'Configurar Novo Gatilho'}</h2>
               <button

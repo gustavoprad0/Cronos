@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 import { BrandMark } from '../components/BrandMark';
 import { useAuth } from '../contexts/AuthContext';
-import RecoverPassword from './RecoverPassword';
+import { useTheme } from '../hooks/useTheme';
 
 type AuthPageProps = {
   onAuthenticated?: () => void;
@@ -30,11 +30,11 @@ const brandMessages = [
   },
 ];
 
-const currentYear = new Date().getFullYear();
 
 export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   const { login } = useAuth();
   const [isRecovering, setIsRecovering] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   const [showPassword, setShowPassword] = useState(false);
   const [activeMessage, setActiveMessage] = useState(0);
   const [email, setEmail] = useState('');
@@ -52,6 +52,8 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
   }, []);
 
   useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (reducedMotion.matches) return;
     const carouselTimer = window.setInterval(() => {
       setActiveMessage((currentMessage) => (currentMessage + 1) % brandMessages.length);
     }, 6000);
@@ -76,12 +78,10 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
     }
   }
 
-  if (isRecovering) {
-    return <RecoverPassword onBackToLogin={() => setIsRecovering(false)} />;
-  }
 
   return (
     <main className="auth-page">
+        <button type="button" className="auth-theme-toggle" onClick={toggleTheme} aria-label={theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}><FontAwesomeIcon icon={theme === 'light' ? faMoon : faSun} /> <span>{theme === 'light' ? 'Tema escuro' : 'Tema claro'}</span></button>
       <section className="brand-panel" aria-label="Sobre o Cronos">
         <div className="brand-panel__glow brand-panel__glow--top" />
         <div className="brand-panel__glow brand-panel__glow--bottom" />
@@ -92,7 +92,7 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
             <span className="brand-lockup__tagline">Orquestrador de automações</span>
           </span>
         </header>
-        <div className="brand-panel__content" aria-live="polite">
+        <div key={activeMessage} className="brand-panel__content brand-message" aria-live="off">
           <p className="eyebrow">{brandMessages[activeMessage].eyebrow}</p>
           <h1>
             {brandMessages[activeMessage].title} <em>{brandMessages[activeMessage].emphasis}</em>
@@ -114,11 +114,14 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
       </section>
 
       <section className="form-panel">
+
         <div className="form-panel__inner">
+          {isRecovering ? <section className="access-recovery" aria-labelledby="recover-title"><span className="form-heading__kicker">RECUPERAR ACESSO</span><h2 id="recover-title">Vamos recuperar<br />seu acesso.</h2><p>Seu acesso é gerenciado pela equipe responsável pelo Cronos.</p><div className="recovery-instructions"><span className="recovery-step">01</span><div><strong>Fale com o administrador</strong><p>Informe o e-mail ou nome de usuário da sua conta e solicite uma nova senha.</p></div><span className="recovery-step">02</span><div><strong>Entre com a nova senha</strong><p>Assim que receber a senha, volte para esta tela e acesse sua conta normalmente.</p></div></div><button className="submit-button recovery-back" type="button" onClick={() => setIsRecovering(false)}>Voltar ao login</button><p className="recovery-footnote">Não compartilhe sua senha com outras pessoas.</p></section> : <>
+
           <div className="form-heading">
-            <span className="form-heading__kicker">Acesso Restrito</span>
-            <h2>Entre no seu espaço.</h2>
-            <p>Controle de acesso exclusivo para usuários autorizados.</p>
+            <span className="form-heading__kicker">SEU ACESSO AO CRONOS</span>
+            <h2>Bem-vindo de volta.</h2>
+            <p>Acesse sua conta para acompanhar suas automações.</p>
           </div>
 
           {inactivityNotice && (
@@ -144,26 +147,23 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
           <div className="auth-mode-content">
             <form className="auth-form" onSubmit={handleSubmit}>
               <label className="field">
-                <span>E-mail</span>
+                <span>E-mail ou usuário</span>
                 <input
-                  type="email"
+                  type="text"
                   name="email"
                   value={email}
                   onChange={(event) => {
                     setEmail(event.target.value);
                     setAuthError('');
                   }}
-                  placeholder="voce@empresa.com"
-                  autoComplete="email"
+                  placeholder="E-mail ou nome de usuário"
+                  autoComplete="username"
                   required
                 />
               </label>
               <label className="field">
                 <span className="field__label-row">
                   <span>Senha</span>
-                  <button className="forgot-link" type="button" onClick={() => setIsRecovering(true)}>
-                    Esqueceu a senha?
-                  </button>
                 </span>
                 <span className="password-input">
                   <input
@@ -184,33 +184,33 @@ export default function AuthPage({ onAuthenticated }: AuthPageProps) {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    aria-pressed={showPassword}
                   >
-                    {showPassword ? 'Ocultar' : 'Mostrar'}
+                    <svg className={`password-eye${showPassword ? ' is-visible' : ''}`} key={String(showPassword)} viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path className="eye-outline" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle className="eye-pupil" cx="12" cy="12" r="3" />{!showPassword && <path className="eye-slash" d="m4 4 16 16" />}</svg>
                   </button>
                 </span>
               </label>
 
-              <label className="check-row">
+              <div className="auth-options"><label className="check-row remember-switch">
                 <input
                   type="checkbox"
+                  role="switch"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />
+                <span className="switch-track" aria-hidden="true" />
                 <span>Manter minha sessão ativa</span>
-              </label>
+              </label><button className="forgot-link" type="button" onClick={() => setIsRecovering(true)}>Esqueceu a senha?<FontAwesomeIcon icon={faArrowRight} aria-hidden="true" /></button></div>
 
               {authError && <p className="auth-error" role="alert">{authError}</p>}
               <button className="submit-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Acessando...' : 'Entrar no Cronos'}
-                <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '14px', color: 'var(--color-accent)' }} />
+                {isSubmitting ? 'Acessando...' : 'Acessar'}
+
               </button>
             </form>
           </div>
 
-          <div className="form-footer">
-            <span>© {currentYear} Cronos</span>
-            <span>Acesso gerenciado por Administradores</span>
-          </div>
+          </> }
         </div>
       </section>
     </main>

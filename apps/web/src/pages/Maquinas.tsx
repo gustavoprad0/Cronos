@@ -238,7 +238,7 @@ export default function Maquinas() {
           </div>
         ) : (
           <section className="automation-table" aria-label="Lista de máquinas">
-            <div className="automation-table-scroll">
+            <div className="automation-table-scroll" tabIndex={0} role="region" aria-label="Tabela com rolagem horizontal">
               <div
                 className="automation-head"
                 style={{ gridTemplateColumns: '125px 1.5fr 2.3fr 120px 1.3fr 90px 140px' }}

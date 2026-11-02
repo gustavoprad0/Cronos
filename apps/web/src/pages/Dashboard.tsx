@@ -1,246 +1,64 @@
 import { useEffect, useState } from 'react';
-import Layout from '../components/layout/Layout';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  faRobot,
-  faPlay,
-  faHistory,
-  faShieldHalved,
-  faArrowRight,
-  faCircleCheck,
-  faLayerGroup,
-} from '@fortawesome/free-solid-svg-icons';
-import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faHistory, faRotate } from '@fortawesome/free-solid-svg-icons';
 import { apiRequest } from '../services/api';
 import './Dashboard.css';
 
-interface MetricCardProps {
-  value: string | number;
-  label: string;
-  detail: string;
-  tone: 'purple' | 'yellow' | 'blue' | 'green';
-  icon: IconDefinition;
-}
-
-function MetricCard({ value, label, detail, tone, icon }: MetricCardProps) {
-  return (
-    <article className={`metric-card metric-card--${tone}`}>
-      <div className="metric-card-top">
-        <div className={`metric-icon metric-icon--${tone}`} aria-hidden="true">
-          <FontAwesomeIcon icon={icon} />
-        </div>
-        <span className="metric-trend metric-trend--neutral">Agora</span>
-      </div>
-      <strong className="metric-value">{value}</strong>
-      <span className="metric-label">{label}</span>
-      <span className="metric-subinfo">{detail}</span>
-      <div className="metric-progress-track">
-        <div className={`metric-progress-bar metric-progress-bar--${tone}`} style={{ width: '75%' }} />
-      </div>
-    </article>
-  );
-}
+interface Automation { id: number; ativo: boolean }
+interface HistoryItem { id: number; automacao_nome: string; status: string; data_inicio: string; maquina_nome?: string }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    automacoes: 0,
-    executando: 0,
-    hoje: 0,
-    disponibilidade: '100%',
-  });
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [machines, setMachines] = useState<{id: number; is_online: boolean}[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
-    async function loadStats() {
-      try {
-        const [autos, hist] = await Promise.all([
-          apiRequest<any[]>('/automacoes').catch(() => []),
-          apiRequest<{ items: any[]; total: number }>('/historico?limit=50').catch(() => ({ items: [], total: 0 })),
-        ]);
+    let active = true;
+    setLoading(true);
+    setError('');
+    Promise.all([
+      apiRequest<Automation[]>('/automacoes'),
+      apiRequest<{id: number; is_online: boolean}[]>('/maquinas'),
+      apiRequest<{ items: HistoryItem[]; total: number }>('/historico?limit=5'),
+    ]).then(([autos, machineList, result]) => {
+      if (!active) return;
+      setAutomations(autos);
+      setMachines(machineList);
+      setHistory(result.items);
+      setTotal(result.total);
+    }).catch(() => {
+      if (active) setError('Não foi possível carregar o resumo. Verifique a conexão e tente novamente.');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [revision]);
 
-        const autoList = autos || [];
-        const histItems = hist?.items || [];
-        const running = histItems.filter((h: any) => h.status === 'em_execucao').length;
-
-        setStats({
-          automacoes: autoList.length,
-          executando: running,
-          hoje: hist?.total || 0,
-          disponibilidade: '100%',
-        });
-      } catch (err) {
-        console.error('Erro ao carregar estatísticas do dashboard:', err);
-      }
-    }
-    loadStats();
-  }, []);
-
-  const handleNavigateAutomacoes = () => {
-    window.history.pushState({}, '', '/automacoes');
+  function navigate(path: string) {
+    window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
-  };
+  }
 
+  const statuses: Record<string, string> = { sucesso: 'Concluída', erro: 'Falhou', parado: 'Interrompida', em_execucao: 'Em execução', pendente: 'Pendente' };
+  const unavailable = loading || Boolean(error);
   return (
-    <Layout activeItem="dashboard">
-      <div className="dashboard-container">
-        <header className="dashboard-header">
-          <div className="dashboard-header-left">
-            <span className="dashboard-header-badge">
-              <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: '12px', marginRight: '4px' }} />
-              Visão geral
-            </span>
-            <h1 className="dashboard-title">Bom dia, seu espaço está pronto.</h1>
-            <p className="dashboard-subtitle">Acompanhe suas automações e tarefas em um só lugar.</p>
-          </div>
-          <div className="dashboard-header-right">
-            <div className="dashboard-status-chip">
-              <span className="live-dot" aria-hidden="true" />
-              <span className="dashboard-status-chip-content">
-                <span className="status-chip-label">Sistema</span>
-                <strong className="status-chip-value">Operacional</strong>
-              </span>
-            </div>
-          </div>
-        </header>
-
-        <section className="dashboard-section" aria-labelledby="overview-title">
-          <div className="dashboard-section-header">
-            <div>
-              <h2 className="dashboard-section-title" id="overview-title">Visão geral</h2>
-              <p className="dashboard-section-subtitle">Resumo do seu ambiente</p>
-            </div>
-          </div>
-          <div className="metrics-grid">
-            <MetricCard
-              value={stats.automacoes}
-              label="Automações ativas"
-              detail={stats.automacoes > 0 ? `${stats.automacoes} fluxos cadastrados` : 'Nenhum fluxo configurado'}
-              tone="purple"
-              icon={faRobot}
-            />
-            <MetricCard
-              value={stats.executando}
-              label="Tarefas em execução"
-              detail={stats.executando > 0 ? `${stats.executando} robôs rodando agora` : 'Tudo tranquilo por aqui'}
-              tone="yellow"
-              icon={faPlay}
-            />
-            <MetricCard
-              value={stats.hoje}
-              label="Total no Histórico"
-              detail={stats.hoje > 0 ? `${stats.hoje} execuções registradas` : 'Comece criando uma automação'}
-              tone="blue"
-              icon={faHistory}
-            />
-            <MetricCard
-              value={stats.disponibilidade}
-              label="Disponibilidade"
-              detail="Sistema operando normalmente"
-              tone="green"
-              icon={faShieldHalved}
-            />
-          </div>
-        </section>
-
-        <section className="dashboard-section" aria-labelledby="monitor-title">
-          <div className="dashboard-section-header">
-            <div>
-              <h2 className="dashboard-section-title" id="monitor-title">Monitoramento</h2>
-              <p className="dashboard-section-subtitle">Estado atual do ambiente</p>
-            </div>
-          </div>
-          <div className="monitor-grid">
-            <article className="monitor-card">
-              <div className="monitor-card-header">
-                <h3 className="monitor-card-title">Disponibilidade</h3>
-                <span className="live-indicator"><span className="live-dot" /> Online</span>
-              </div>
-              <div className="gauge-container">
-                <svg className="gauge-ring" width="128" height="128" viewBox="0 0 128 128" aria-label="Disponibilidade de 100 por cento">
-                  <circle className="gauge-bg" cx="64" cy="64" r="48" />
-                  <circle className="gauge-fill green" cx="64" cy="64" r="48" strokeDasharray="301.59" strokeDashoffset="0" />
-                </svg>
-                <span className="gauge-center">
-                  <strong className="gauge-center-value">100%</strong>
-                  <span className="gauge-center-label">saúde</span>
-                </span>
-              </div>
-            </article>
-
-            <article className="monitor-card">
-              <div className="monitor-card-header">
-                <h3 className="monitor-card-title">Atividade</h3>
-                <span className="monitor-card-value">Agora</span>
-              </div>
-              <div className="monitor-details">
-                <div className="monitor-detail-row">
-                  <span className="monitor-detail-label">Automações</span>
-                  <strong className="monitor-detail-value">{stats.automacoes > 0 ? `${stats.automacoes} registradas` : 'Nenhuma'}</strong>
-                </div>
-                <div className="monitor-detail-row">
-                  <span className="monitor-detail-label">Fila de tarefas</span>
-                  <strong className="monitor-detail-value">{stats.executando > 0 ? `${stats.executando} em andamento` : 'Vazia'}</strong>
-                </div>
-                <div className="monitor-detail-row">
-                  <span className="monitor-detail-label">Total histórico</span>
-                  <strong className="monitor-detail-value">{stats.hoje > 0 ? `${stats.hoje} execuções` : 'Nenhuma'}</strong>
-                </div>
-              </div>
-            </article>
-
-            <article className="monitor-card">
-              <div className="monitor-card-header">
-                <h3 className="monitor-card-title">Próximo passo</h3>
-              </div>
-              <div className="monitor-details">
-                <p className="dashboard-section-subtitle">
-                  Crie sua primeira automação ou configure gatilhos para começar a acompanhar resultados por aqui.
-                </p>
-                <button className="submit-button" type="button" onClick={handleNavigateAutomacoes}>
-                  <span>Criar automação</span>
-                  <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '13px', marginLeft: '8px' }} />
-                </button>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section className="dashboard-section activity-section" aria-labelledby="activity-title">
-          <div className="dashboard-section-header">
-            <div>
-              <h2 className="dashboard-section-title" id="activity-title">Atividade recente</h2>
-              <p className="dashboard-section-subtitle">As últimas movimentações do ambiente</p>
-            </div>
-          </div>
-          <div className="activity-table-wrapper">
-            <table className="activity-table">
-              <thead>
-                <tr>
-                  <th className="activity-th">Execução</th>
-                  <th className="activity-th">Categoria</th>
-                  <th className="activity-th">Status</th>
-                  <th className="activity-th">Registro</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="activity-td activity-td--name">
-                    <span className="activity-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      <FontAwesomeIcon icon={faLayerGroup} style={{ color: 'var(--color-primary)' }} />
-                      Auditoria centralizada
-                    </span>
-                    <span className="activity-name-sub">Acesse a tela de Histórico para auditar logs completos</span>
-                  </td>
-                  <td className="activity-td activity-td--category">Geral</td>
-                  <td className="activity-td activity-td--status">
-                    <span style={{ color: '#16a34a', fontWeight: 600 }}>Ativo</span>
-                  </td>
-                  <td className="activity-td activity-td--time">Tempo real</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    </Layout>
+    <div className="overview">
+      <header className="overview-heading">
+        <div><p className="overview-eyebrow">CENTRAL DE OPERAÇÕES</p><h1>Visão geral</h1><p>O que está acontecendo nas suas automações.</p></div>
+        <button type="button" className="overview-button" disabled={loading} onClick={() => setRevision(value => value + 1)}><FontAwesomeIcon icon={faRotate} spin={loading} /> Atualizar</button>
+      </header>
+      {error && <div className="overview-error" role="alert">{error}</div>}
+      <section className="overview-metrics" aria-label="Resumo do ambiente">
+        <article><div className="overview-metric-label"><FontAwesomeIcon icon={faRobot} /> Automações ativas</div><strong>{unavailable ? '—' : automations.filter(a => a.ativo).length}</strong><span>{unavailable ? 'Aguardando dados' : `${automations.length} automações cadastradas`}</span></article>
+        <article><div className="overview-metric-label"><span className="overview-dot" /> Máquinas conectadas</div><strong>{unavailable ? '—' : machines.filter(m => m.is_online).length}</strong><span>{unavailable ? 'Aguardando dados' : `${machines.length} máquinas no ambiente`}</span></article>
+        <article><div className="overview-metric-label"><FontAwesomeIcon icon={faHistory} /> Execuções registradas</div><strong>{unavailable ? '—' : total}</strong><span>Histórico completo do ambiente</span></article>
+      </section>
+      <section className="overview-activity" aria-labelledby="activity-title">
+        <div className="overview-section-heading"><div><h2 id="activity-title">Últimas execuções</h2><p>Os cinco registros mais recentes do ambiente.</p></div><button type="button" className="overview-link" onClick={() => navigate('/historico')}><FontAwesomeIcon icon={faHistory} aria-hidden="true" /><span>Abrir histórico</span></button></div>
+        {loading ? <div className="overview-empty" role="status"><FontAwesomeIcon icon={faRotate} spin /><h3>Carregando execuções</h3><p>Buscando as atividades do seu ambiente.</p></div> : error ? <div className="overview-empty"><h3>Resumo indisponível</h3><p>Use Atualizar para tentar novamente.</p></div> : history.length === 0 ? <div className="overview-empty"><div className="overview-empty-icon"><FontAwesomeIcon icon={faHistory} /></div><h3>Seu histórico começa aqui</h3><p>Execute uma automação para acompanhar o resultado neste espaço.</p><button type="button" className="overview-link" onClick={() => navigate('/automacoes')}><FontAwesomeIcon icon={faRobot} aria-hidden="true" /><span>Ver automações</span></button></div> : <div className="overview-table-scroll" tabIndex={0} role="region" aria-label="Últimas execuções com rolagem horizontal"><table className="overview-table"><thead><tr><th>Automação</th><th>Máquina</th><th>Resultado</th><th>Quando</th></tr></thead><tbody>{history.map(item => <tr key={item.id}><td><span className="overview-run-name">{item.automacao_nome}</span><small>Execução #{item.id}</small></td><td>{item.maquina_nome || 'Máquina indisponível'}</td><td><span className={`overview-status is-${item.status}`}><i />{statuses[item.status] || item.status}</span></td><td>{item.data_inicio ? <><span>{new Date(item.data_inicio).toLocaleDateString('pt-BR')}</span><small>{new Date(item.data_inicio).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}</small></> : '—'}</td></tr>)}</tbody></table></div>}
+      </section>
+    </div>
   );
 }

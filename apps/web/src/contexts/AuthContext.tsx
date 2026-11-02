@@ -6,7 +6,6 @@ import {
   setStoredAuth,
   clearStoredAuth,
   loginApi,
-  registerApi,
   getMeApi,
   updateLastActivity,
   isSessionExpiredByInactivity,
@@ -20,8 +19,8 @@ interface AuthContextType {
   canManageUsers: boolean;
   isLoading: boolean;
   login: (email: string, password: string, remember?: boolean) => Promise<void>;
-  register: (email: string, password: string, nome?: string) => Promise<void>;
   logout: (reason?: string) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -58,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: freshUser.id,
           nome: freshUser.nome,
           email: freshUser.email,
+          username: freshUser.username,
           role: freshUser.role || 'operador',
           pode_cadastrar_usuarios: freshUser.role === 'admin' || Boolean(freshUser.pode_cadastrar_usuarios),
           ativo: freshUser.ativo,
@@ -93,9 +93,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     updateLastActivity();
 
+    const expireSession = () => {
+      sessionStorage.setItem('cronos_logout_reason', 'inactivity');
+      clearStoredAuth();
+      setUser(null);
+      setToken(null);
+      window.history.pushState({}, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    };
+
     // Throttle: atualiza o timestamp de atividade no máximo 1 vez a cada 30 segundos
     let lastRecorded = Date.now();
     const handleUserActivity = () => {
+      if (isSessionExpiredByInactivity()) {
+        expireSession();
+        return;
+      }
       const now = Date.now();
       if (now - lastRecorded >= 30000) {
         lastRecorded = now;
@@ -112,12 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const checkInterval = window.setInterval(() => {
       if (isSessionExpiredByInactivity()) {
         console.warn('[Auth] Sessão encerrada: 2 horas de inatividade sem interação do usuário.');
-        sessionStorage.setItem('cronos_logout_reason', 'inactivity');
-        clearStoredAuth();
-        setUser(null);
-        setToken(null);
-        window.history.pushState({}, '', '/');
-        window.dispatchEvent(new PopStateEvent('popstate'));
+        expireSession();
       }
     }, 30000);
 
@@ -137,14 +145,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     updateLastActivity();
   };
 
-  const register = async (email: string, password: string, nome?: string) => {
-    const data = await registerApi(email, password, nome);
-    setStoredAuth(data.token, data.user, true);
-    setToken(data.token);
-    setUser(data.user);
-    updateLastActivity();
-  };
-
   const logout = (reason?: string) => {
     clearStoredAuth();
     if (reason) {
@@ -154,6 +154,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     window.history.pushState({}, '', '/');
     window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const refreshUser = async () => {
+    const freshUser = await getMeApi();
+    setUser({
+      id: freshUser.id,
+      nome: freshUser.nome,
+      email: freshUser.email,
+      username: freshUser.username,
+      role: freshUser.role,
+      pode_cadastrar_usuarios: freshUser.role === 'admin' || Boolean(freshUser.pode_cadastrar_usuarios),
+      ativo: freshUser.ativo,
+    });
   };
 
   const isAdmin = user?.role === 'admin';
@@ -169,8 +182,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         canManageUsers,
         isLoading,
         login,
-        register,
         logout,
+        refreshUser,
       }}
     >
       {children}
