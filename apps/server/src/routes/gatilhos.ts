@@ -4,6 +4,17 @@ import type { ApiResponse, Gatilho } from '@cronos/shared';
 
 const router = Router();
 
+function validateSchedule(tipo: unknown, dia: unknown, horario: unknown, regra: unknown): string | null {
+  if (!['diario', 'semanal', 'mensal'].includes(String(tipo))) return 'Periodicidade inválida.';
+  if (typeof horario !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(horario)) return 'Horário inválido.';
+  if (!['manter', 'adiantar', 'postergar'].includes(String(regra))) return 'Regra para fins de semana inválida.';
+  if (tipo !== 'diario') {
+    const n = Number(dia);
+    if (dia == null || !Number.isInteger(n) || n < 1 || n > (tipo === 'semanal' ? 7 : 31)) return 'Dia de execução inválido para a periodicidade selecionada.';
+  }
+  return null;
+}
+
 export interface GatilhoComRelacionamentos extends Gatilho {
   automacao_nome: string;
   automacao_departamento: string;
@@ -82,6 +93,9 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    const validationError = validateSchedule(tipo, dia_execucao, horario_execucao, regra_dia_util || 'manter');
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
+
     const result = await query<Gatilho>(
       `INSERT INTO gatilhos 
         (automacao_id, maquina_id, tipo, dia_execucao, horario_execucao, regra_dia_util, ativo)
@@ -118,12 +132,18 @@ router.put('/:id', async (req: Request, res: Response) => {
       ativo,
     } = req.body;
 
+    const currentResult = await query<Gatilho>('SELECT * FROM gatilhos WHERE id = $1', [id]);
+    if (currentResult.rows.length === 0) return res.status(404).json({ success: false, error: 'Gatilho não encontrado' });
+    const current = currentResult.rows[0];
+    const validationError = validateSchedule(tipo ?? current.tipo, dia_execucao === undefined ? current.dia_execucao : dia_execucao, horario_execucao ?? current.horario_execucao, regra_dia_util ?? current.regra_dia_util);
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
+
     const result = await query<Gatilho>(
       `UPDATE gatilhos
        SET automacao_id = COALESCE($1, automacao_id),
            maquina_id = COALESCE($2, maquina_id),
            tipo = COALESCE($3, tipo),
-           dia_execucao = $4,
+           dia_execucao = CASE WHEN $9 THEN $4 ELSE dia_execucao END,
            horario_execucao = COALESCE($5, horario_execucao),
            regra_dia_util = COALESCE($6, regra_dia_util),
            ativo = COALESCE($7, ativo)
@@ -138,6 +158,7 @@ router.put('/:id', async (req: Request, res: Response) => {
         regra_dia_util,
         ativo,
         id,
+        dia_execucao !== undefined,
       ]
     );
 

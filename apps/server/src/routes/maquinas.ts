@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { query } from '../db';
 import type { ApiResponse, Maquina } from '@cronos/shared';
+import { realtimeSecret } from '../realtime-config';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.get('/', async (_req: Request, res: Response) => {
     // Tenta consultar clientes conectados no realtime
     let onlineMachineNames = new Set<string>();
     try {
-      const rtRes = await fetch(`${REALTIME_URL}/clients`, { signal: AbortSignal.timeout(1000) });
+      const rtRes = await fetch(`${REALTIME_URL}/clients`, { signal: AbortSignal.timeout(1000), headers: { 'X-Cronos-Internal-Secret': realtimeSecret } });
       if (rtRes.ok) {
         const rtData = (await rtRes.json()) as { clients: { machine_name: string }[] };
         onlineMachineNames = new Set(rtData.clients.map((c) => c.machine_name.toLowerCase()));

@@ -18,7 +18,7 @@ function isValidEmail(email: string): boolean {
 router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await query<Usuario>(
-      `SELECT id, nome, email, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao
+      `SELECT id, nome, email, username, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao
        FROM usuarios
        ORDER BY id ASC`
     );
@@ -29,6 +29,7 @@ router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
     };
     return res.json(response);
   } catch (error: any) {
+    if (error.code === '23505') return res.status(409).json({ success: false, error: 'E-mail ou nome de usuário já cadastrado.' });
     console.error('[Usuarios] Erro ao listar usuários:', error);
     return res.status(500).json({
       success: false,
@@ -40,13 +41,14 @@ router.get('/', async (_req: AuthenticatedRequest, res: Response) => {
 // POST /api/usuarios - Criação de novo usuário pelo Administrador
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { email, password, nome, role = 'operador', pode_cadastrar_usuarios = false, ativo = true } = req.body;
+    const { email, password, nome, username, role = 'operador', pode_cadastrar_usuarios = false, ativo = true } = req.body;
 
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ success: false, error: 'O e-mail é obrigatório.' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    if (username && (typeof username !== 'string' || !/^[a-zA-Z0-9._-]{3,50}$/.test(username))) return res.status(400).json({ success: false, error: 'Usuário deve ter de 3 a 50 letras, números, pontos, traços ou sublinhados.' });
 
     if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ success: false, error: 'Formato de e-mail inválido.' });
@@ -80,10 +82,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     const senhaHash = await bcrypt.hash(password, salt);
 
     const insertResult = await query<Usuario>(
-      `INSERT INTO usuarios (nome, email, senha_hash, role, pode_cadastrar_usuarios, ativo)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO usuarios (nome, email, senha_hash, role, pode_cadastrar_usuarios, ativo, username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, nome, email, role, pode_cadastrar_usuarios, ativo, data_criacao, data_atualizacao`,
-      [displayName, normalizedEmail, senhaHash, assignedRole, canManage, Boolean(ativo)]
+      [displayName, normalizedEmail, senhaHash, assignedRole, canManage, Boolean(ativo), username?.toLowerCase() || null]
     );
 
     const newUser = insertResult.rows[0];
@@ -93,6 +95,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       data: newUser,
     });
   } catch (error: any) {
+    if (error.code === '23505') return res.status(409).json({ success: false, error: 'E-mail ou nome de usuário já cadastrado.' });
     console.error('[Usuarios] Erro ao criar usuário:', error);
     return res.status(500).json({
       success: false,
@@ -109,10 +112,10 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ success: false, error: 'ID de usuário inválido.' });
     }
 
-    const { nome, email, password, role, pode_cadastrar_usuarios, ativo } = req.body;
+    const { nome, email, username, password, role, pode_cadastrar_usuarios, ativo } = req.body;
 
     // Busca o usuário atual no banco
-    const userResult = await query('SELECT id, email, role, ativo FROM usuarios WHERE id = $1', [targetUserId]);
+    const userResult = await query('SELECT id, nome, email, username, role, pode_cadastrar_usuarios, ativo FROM usuarios WHERE id = $1', [targetUserId]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
     }
@@ -128,7 +131,7 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
           error: 'Você não pode desativar sua própria conta logada.',
         });
       }
-      if (role && role !== 'admin') {
+      if (currentUser.role === 'admin' && role && role !== 'admin') {
         return res.status(400).json({
           success: false,
           error: 'Você não pode revogar o seu próprio privilégio de Administrador.',
@@ -153,6 +156,8 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
       normalizedEmail = trimmed;
     }
 
+    if (username && (typeof username !== 'string' || !/^[a-zA-Z0-9._-]{3,50}$/.test(username))) return res.status(400).json({ success: false, error: 'Nome de usuário inválido.' });
+    const newUsername = username === undefined ? currentUser.username : (username?.toLowerCase() || null);
     const newRole: UserRole = role === 'admin' ? 'admin' : (role === 'operador' ? 'operador' : currentUser.role);
     const newCanManage = newRole === 'admin' ? true : (pode_cadastrar_usuarios !== undefined ? Boolean(pode_cadastrar_usuarios) : currentUser.pode_cadastrar_usuarios);
     const newAtivo = ativo !== undefined ? Boolean(ativo) : currentUser.ativo;
@@ -171,10 +176,10 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
 
       const updateWithPass = await query<Usuario>(
         `UPDATE usuarios
-         SET nome = $1, email = $2, role = $3, pode_cadastrar_usuarios = $4, ativo = $5, senha_hash = $6, data_atualizacao = CURRENT_TIMESTAMP
+         SET nome = $1, email = $2, role = $3, pode_cadastrar_usuarios = $4, ativo = $5, senha_hash = $6, username = $8, data_atualizacao = CURRENT_TIMESTAMP
          WHERE id = $7
-         RETURNING id, nome, email, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao`,
-        [newNome, normalizedEmail, newRole, newCanManage, newAtivo, senhaHash, targetUserId]
+         RETURNING id, nome, email, username, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao`,
+        [newNome, normalizedEmail, newRole, newCanManage, newAtivo, senhaHash, targetUserId, newUsername]
       );
       return res.json({ success: true, data: updateWithPass.rows[0] });
     }
@@ -182,10 +187,10 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
     // Atualização sem alteração de senha
     const updateResult = await query<Usuario>(
       `UPDATE usuarios
-       SET nome = $1, email = $2, role = $3, pode_cadastrar_usuarios = $4, ativo = $5, data_atualizacao = CURRENT_TIMESTAMP
+       SET nome = $1, email = $2, role = $3, pode_cadastrar_usuarios = $4, ativo = $5, username = $7, data_atualizacao = CURRENT_TIMESTAMP
        WHERE id = $6
-       RETURNING id, nome, email, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao`,
-      [newNome, normalizedEmail, newRole, newCanManage, newAtivo, targetUserId]
+       RETURNING id, nome, email, username, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao`,
+      [newNome, normalizedEmail, newRole, newCanManage, newAtivo, targetUserId, newUsername]
     );
 
     return res.json({
@@ -193,6 +198,7 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
       data: updateResult.rows[0],
     });
   } catch (error: any) {
+    if (error.code === '23505') return res.status(409).json({ success: false, error: 'E-mail ou nome de usuário já cadastrado.' });
     console.error('[Usuarios] Erro ao atualizar usuário:', error);
     return res.status(500).json({
       success: false,
@@ -228,6 +234,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
       message: `Usuário ${checkResult.rows[0].nome || checkResult.rows[0].email} excluído com sucesso.`,
     });
   } catch (error: any) {
+    if (error.code === '23505') return res.status(409).json({ success: false, error: 'E-mail ou nome de usuário já cadastrado.' });
     console.error('[Usuarios] Erro ao excluir usuário:', error);
     return res.status(500).json({
       success: false,

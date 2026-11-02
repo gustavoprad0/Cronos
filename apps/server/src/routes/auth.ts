@@ -6,7 +6,7 @@ import { authMiddleware, canManageUsersMiddleware, AuthenticatedRequest } from '
 import type { ApiResponse, AuthResponseData, Usuario, UserRole } from '@cronos/shared';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'cronos_jwt_secret_dev_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET é obrigatório em produção'); })() : 'cronos_jwt_secret_dev_key_2026');
 const JWT_EXPIRES_IN: jwt.SignOptions['expiresIn'] = '7d';
 
 
@@ -92,7 +92,7 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'E-mail e senha são obrigatórios.',
+        error: 'Informe seu e-mail ou usuário e sua senha.',
       });
     }
 
@@ -100,16 +100,16 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // Busca usuário no banco com perfil e permissões
     const userResult = await query(
-      `SELECT id, nome, email, senha_hash, role, pode_cadastrar_usuarios, ativo, ultimo_login
+      `SELECT id, nome, email, username, senha_hash, role, pode_cadastrar_usuarios, ativo, ultimo_login
        FROM usuarios
-       WHERE email = $1`,
+       WHERE lower(email) = $1 OR lower(username) = $1`,
       [normalizedEmail]
     );
 
     if (userResult.rows.length === 0) {
       return res.status(401).json({
         success: false,
-        error: 'E-mail ou senha incorretos.',
+        error: 'E-mail, usuário ou senha incorretos.',
       });
     }
 
@@ -127,7 +127,7 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!passwordMatch) {
       return res.status(401).json({
         success: false,
-        error: 'E-mail ou senha incorretos.',
+        error: 'E-mail, usuário ou senha incorretos.',
       });
     }
 
@@ -155,6 +155,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         nome: user.nome,
         email: user.email,
+        username: user.username,
         role: userRole,
         pode_cadastrar_usuarios: canManageUsers,
         ativo: user.ativo,
@@ -181,7 +182,7 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Respons
     const userId = req.user?.id;
 
     const userResult = await query<Usuario>(
-      `SELECT id, nome, email, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao
+      `SELECT id, nome, email, username, role, pode_cadastrar_usuarios, ativo, ultimo_login, data_criacao, data_atualizacao
        FROM usuarios
        WHERE id = $1`,
       [userId]
@@ -217,53 +218,11 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Respons
 });
 
 // POST /api/auth/reset-password - Redefinição de senha
-router.post('/reset-password', async (req: Request, res: Response) => {
-  try {
-    const { email, newPassword } = req.body;
-
-    if (!email || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        error: 'E-mail e nova senha são obrigatórios.',
-      });
-    }
-
-    if (typeof newPassword !== 'string' || newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        error: 'A nova senha deve ter no mínimo 6 caracteres.',
-      });
-    }
-
-    const normalizedEmail = String(email).trim().toLowerCase();
-
-    const userResult = await query('SELECT id FROM usuarios WHERE email = $1', [normalizedEmail]);
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'E-mail não cadastrado.',
-      });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const senhaHash = await bcrypt.hash(newPassword, salt);
-
-    await query('UPDATE usuarios SET senha_hash = $1 WHERE id = $2', [
-      senhaHash,
-      userResult.rows[0].id,
-    ]);
-
-    return res.json({
-      success: true,
-      message: 'Senha alterada com sucesso.',
-    });
-  } catch (error: any) {
-    console.error('[Auth] Erro ao redefinir senha:', error);
-    return res.status(500).json({
-      success: false,
-      error: `Erro ao redefinir senha: ${error.message}`,
-    });
-  }
+router.post('/reset-password', (_req: Request, res: Response) => {
+  return res.status(501).json({
+    success: false,
+    error: 'Recuperação automática indisponível. Solicite a redefinição a um administrador.',
+  });
 });
 
 export default router;

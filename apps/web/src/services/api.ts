@@ -1,6 +1,6 @@
 import type { AuthResponseData, Usuario } from '@cronos/shared';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const TOKEN_KEY = 'cronos_token';
 export const USER_KEY = 'cronos_user';
@@ -112,26 +112,8 @@ export async function loginApi(email: string, password: string): Promise<AuthRes
   });
 }
 
-export async function registerApi(
-  email: string,
-  password: string,
-  nome?: string
-): Promise<AuthResponseData> {
-  return apiRequest<AuthResponseData>('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ email, password, nome }),
-  });
-}
-
 export async function getMeApi(): Promise<Usuario> {
   return apiRequest<Usuario>('/auth/me');
-}
-
-export async function resetPasswordApi(email: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-  return apiRequest<{ success: boolean; message: string }>('/auth/reset-password', {
-    method: 'POST',
-    body: JSON.stringify({ email, newPassword }),
-  });
 }
 
 // -----------------------------------------------------------------------------
@@ -144,6 +126,7 @@ export async function getUsuariosApi(): Promise<Usuario[]> {
 
 export async function createUsuarioApi(payload: {
   nome?: string;
+  username?: string;
   email: string;
   password: string;
   role?: string;
@@ -160,6 +143,7 @@ export async function updateUsuarioApi(
   id: number,
   payload: {
     nome?: string;
+    username?: string;
     email?: string;
     password?: string;
     role?: string;

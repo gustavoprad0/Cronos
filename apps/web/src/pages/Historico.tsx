@@ -1,3 +1,4 @@
+import { usePreference } from '../hooks/usePreference';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import type { StatusHistorico } from '@cronos/shared';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -116,11 +117,11 @@ export default function Historico() {
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
   // Filtros
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [searchTerm, setSearchTerm] = usePreference('history.search', '');
+  const [statusFilter, setStatusFilter] = usePreference('history.status', '');
+  const [departmentFilter, setDepartmentFilter] = usePreference('history.department', '');
+  const [startDate, setStartDate] = usePreference('history.startDate', '');
+  const [endDate, setEndDate] = usePreference('history.endDate', '');
 
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -261,7 +262,7 @@ export default function Historico() {
         <div className="history-header-left">
           <div className="history-badge">
             <FontAwesomeIcon icon={faHistory} />
-            <span>Auditoria & Execuções</span>
+            <span>Auditoria e Execuções</span>
           </div>
           <h1 className="history-title">Histórico de Execuções</h1>
           <p className="history-subtitle">

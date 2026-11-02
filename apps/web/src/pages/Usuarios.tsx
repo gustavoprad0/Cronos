@@ -1,3 +1,4 @@
+import { usePreference } from '../hooks/usePreference';
 import { useEffect, useState, useMemo } from 'react';
 import type { Usuario, UserRole } from '@cronos/shared';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -27,7 +28,7 @@ import './orchestrator.css';
 import './Usuarios.css';
 
 export default function Usuarios() {
-  const { user: currentUser, canManageUsers } = useAuth();
+  const { user: currentUser, canManageUsers, refreshUser } = useAuth();
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,15 +36,16 @@ export default function Usuarios() {
   const [successMsg, setSuccessMsg] = useState('');
 
   // Filtros
-  const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [search, setSearch] = usePreference('users.search', '');
+  const [roleFilter, setRoleFilter] = usePreference('users.role', 'all');
+  const [statusFilter, setStatusFilter] = usePreference('users.status', 'all');
 
   // Modal Criação / Edição
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Usuario | null>(null);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<UserRole>('operador');
@@ -85,7 +87,8 @@ export default function Usuarios() {
     return usuarios.filter((u) => {
       const matchesSearch =
         u.nome.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase());
+        u.email.toLowerCase().includes(search.toLowerCase()) ||
+        (u.username || '').toLowerCase().includes(search.toLowerCase());
 
       const matchesRole = roleFilter === 'all' || u.role === roleFilter;
 
@@ -102,8 +105,10 @@ export default function Usuarios() {
   const generateRandomPassword = () => {
     const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
     let res = '';
-    for (let i = 0; i < 12; i++) {
-      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    const randomValues = new Uint32Array(12);
+    crypto.getRandomValues(randomValues);
+    for (const value of randomValues) {
+      res += chars.charAt(value % chars.length);
     }
     setPassword(res);
     setShowPassword(true);
@@ -114,6 +119,7 @@ export default function Usuarios() {
     setEditingUser(null);
     setNome('');
     setEmail('');
+    setUsername('');
     setPassword('');
     setShowPassword(false);
     setRole('operador');
@@ -128,6 +134,7 @@ export default function Usuarios() {
     setEditingUser(user);
     setNome(user.nome);
     setEmail(user.email);
+    setUsername(user.username || '');
     setPassword('');
     setShowPassword(false);
     setRole(user.role || 'operador');
@@ -163,16 +170,19 @@ export default function Usuarios() {
         await updateUsuarioApi(editingUser.id, {
           nome: nome.trim() || undefined,
           email: email.trim().toLowerCase(),
+          username: username.trim(),
           password: password.trim() ? password : undefined,
           role,
           pode_cadastrar_usuarios: role === 'admin' ? true : podeCadastrar,
           ativo,
         });
+        if (editingUser.id === currentUser?.id) await refreshUser();
         setSuccessMsg(`Usuário "${nome || email}" atualizado com sucesso!`);
       } else {
         await createUsuarioApi({
           nome: nome.trim() || undefined,
           email: email.trim().toLowerCase(),
+          username: username.trim(),
           password,
           role,
           pode_cadastrar_usuarios: role === 'admin' ? true : podeCadastrar,
@@ -260,7 +270,7 @@ export default function Usuarios() {
         {/* Hero Section */}
         <section className="orchestrator-hero">
           <div>
-            <h1>Gestão de Usuários & Permissões</h1>
+            <h1>Gestão de Usuários e Permissões</h1>
             <p className="intro">
               Cadastre novos usuários no sistema, defina papéis de acesso e gerencie quem pode cadastrar ou alterar permissões.
             </p>
@@ -524,7 +534,7 @@ export default function Usuarios() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '18px', color: 'var(--color-ink)' }}>
-                {editingUser ? 'Editar Usuário & Permissões' : 'Cadastrar Novo Usuário'}
+                {editingUser ? 'Editar Usuário e Permissões' : 'Cadastrar Novo Usuário'}
               </h2>
               <button
                 type="button"
@@ -559,6 +569,10 @@ export default function Usuarios() {
                 />
               </div>
 
+              <div className="form-group">
+                <label htmlFor="username">Nome de usuário (opcional)</label>
+                <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ex: ana.silva" pattern="[A-Za-z0-9._-]{3,50}" />
+              </div>
               <div className="form-group">
                 <label>E-mail de Acesso *</label>
                 <input
@@ -645,8 +659,8 @@ export default function Usuarios() {
                 className="switch-box"
                 style={{
                   opacity: role === 'admin' ? 0.85 : 1,
-                  background: role === 'admin' ? '#faf5ff' : '#f8fafc',
-                  borderColor: role === 'admin' ? '#ddd6fe' : 'var(--color-line)',
+                  background: 'var(--ui-raised)',
+                  borderColor: 'var(--ui-border)',
                 }}
               >
                 <input
