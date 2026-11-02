@@ -51,7 +51,7 @@ A identidade usa **roxo `#5B21B6`**, com temas claro e escuro e navegação adap
 5. O Cronos registra a execução e envia o comando ao agente.
 6. O agente informa o resultado; o histórico é atualizado no PostgreSQL.
 
-> **O agente executa o processo.** A interface web não executa arquivos no navegador. O caminho cadastrado precisa existir na máquina do agente. `CronosClient` é uma referência Git externa já presente no repositório; este monorepo não inclui um instalador de agente nem executáveis de demonstração. O teste de fluxo usa um agente simulado.
+> **O agente executa o processo.** A interface web não executa arquivos no navegador. O caminho cadastrado precisa existir na máquina do agente. Este monorepo não inclui um instalador de agente nem executáveis de demonstração. A referência antiga `CronosClient`, que não possuía URL de submódulo configurada, foi removida; o agente deve ser fornecido e configurado separadamente. O teste de fluxo usa um agente simulado.
 
 ## Começar
 
